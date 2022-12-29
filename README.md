@@ -15,3 +15,10 @@ look at config.yaml
 pip install -e .
 python dreambooth_tutorial/train.py
 ```
+
+### predict
+
+change promt first 
+```
+python dreambooth_tutorial/train.py
+```
