@@ -17,7 +17,7 @@ pipe = StableDiffusionPipeline.from_pretrained(
 )
 # unet_lora_params, _ = inject_trainable_lora(pipe.unet, r=config.lora_rank, loras=None)
 pipe.unet.load_state_dict(model)
-import IPython; IPython.embed(); exit(1)
+
 pipe = pipe.to("cuda")
 
 prompt = "a photo of sks narek"
