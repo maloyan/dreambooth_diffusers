@@ -4,3 +4,6 @@ instance-images/
 *.egg-info 
 *__pycache__
 *.png
+instance_data
+test.png
+result
