@@ -1,4 +1,5 @@
 import os
+from dreambooth_tutorial.text_model import NCModel
 
 import torch
 import torch.nn.functional as F
@@ -6,12 +7,12 @@ import wandb
 from accelerate import Accelerator
 from diffusers import AutoencoderKL, DDPMScheduler, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
+from dreambooth_tutorial.dataset import DreamBoothDataset
 from omegaconf import OmegaConf
 from pkg_resources import resource_filename
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, CLIPTextModel
-from dreambooth_tutorial.dataset import DreamBoothDataset
 
 config = OmegaConf.load(resource_filename(__name__, "../configs/config.yaml"))
 
@@ -53,15 +54,13 @@ unet = UNet2DConditionModel.from_pretrained(
 
 text_encoder.requires_grad_(False)
 vae.requires_grad_(False)
+unet.requires_grad_(False)
 
-optimizer = torch.optim.AdamW(
-    unet.parameters(),
-    lr=config.learning_rate,
-)
+for param in unet.parameters():
+    
 
-noise_scheduler = DDPMScheduler.from_pretrained(
-    config.pretrained_model_name_or_path, subfolder="scheduler"
-)
+unet.resnets.requires_grad_(True)
+unet.conv_out.requires_grad_(True)
 
 train_dataset = DreamBoothDataset(
     instance_data_root=config.instance_data_dir,
@@ -80,6 +79,21 @@ train_dataloader = DataLoader(
     num_workers=4,
 )
 
+# nc_model = NCModel(
+#     max_position_embeddings=text_encoder.config.max_position_embeddings,
+#     hidden_size=text_encoder.config.hidden_size,
+#     #init_embedding=text_encoder(train_dataset[0]['instance_prompt_ids'].unsqueeze(0))[0][0],
+# )
+
+optimizer = torch.optim.AdamW(
+    unet.conv_out.parameters(),
+    lr=config.learning_rate,
+)
+
+noise_scheduler = DDPMScheduler.from_pretrained(
+    config.pretrained_model_name_or_path, subfolder="scheduler"
+)
+
 lr_scheduler = get_scheduler(
     config.lr_scheduler,
     optimizer=optimizer,
@@ -88,6 +102,7 @@ lr_scheduler = get_scheduler(
 )
 
 (
+#    nc_model,
     unet,
     text_encoder,
     vae,
@@ -95,7 +110,13 @@ lr_scheduler = get_scheduler(
     train_dataloader,
     lr_scheduler,
 ) = accelerator.prepare(
-    unet, text_encoder, vae, optimizer, train_dataloader, lr_scheduler
+#    nc_model,
+    unet,
+    text_encoder,
+    vae,
+    optimizer,
+    train_dataloader,
+    lr_scheduler,
 )
 accelerator.register_for_checkpointing(lr_scheduler)
 
@@ -106,6 +127,7 @@ progress_bar = tqdm(
 progress_bar.set_description("Steps")
 global_step = 0
 
+# unet.train()
 unet.train()
 for _ in progress_bar:
     for batch in train_dataloader:
@@ -132,10 +154,17 @@ for _ in progress_bar:
 
             # Get the text embedding for conditioning
             encoder_hidden_states = text_encoder(batch["instance_prompt_ids"])[0]
+            
 
             # Predict the noise residual
-            model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+            model_pred = unet(
+                noisy_latents,
+                timesteps,
+                encoder_hidden_states
+            ).sample
 
+            #nc_noise = nc_model(batch["instance_prompt_ids"].shape[0])
+            #model_pred = model_pred + nc_noise
             # Get the target for loss depending on the prediction type
             if noise_scheduler.config.prediction_type == "epsilon":
                 target = noise
@@ -166,7 +195,8 @@ for _ in progress_bar:
                 # Add the prior loss to the instance loss.
                 loss = loss + config.prior_loss_weight * prior_loss
             else:
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean") # + \
+                       #nc_noise.norm(2) #* 0.00001
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -181,8 +211,8 @@ for _ in progress_bar:
             progress_bar.update(1)
             global_step += 1
 
-            if global_step % 100 == 0 and accelerator.is_main_process:
-                save_path = os.path.join(config.output_dir, f"checkpoint-{global_step}")
+            if global_step % config.checkpoint_steps == 0 and accelerator.is_main_process:
+                save_path = os.path.join(config.output_dir, config.instance_prompt, f"checkpoint-{global_step}")
                 accelerator.save_state(save_path)
 
         logs = {
