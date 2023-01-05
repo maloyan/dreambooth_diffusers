@@ -3,7 +3,7 @@ output/
 instance-images/
 *.egg-info 
 *__pycache__
-*.pnginstance_data
+*.png
+instance_data
 test.png
 result
-instance_data
