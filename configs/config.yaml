@@ -1,8 +1,8 @@
-pretrained_model_name_or_path: "CompVis/stable-diffusion-v1-4" #runwayml/stable-diffusion-v1-5
-instance_data_dir: "/root/ai-avatars/instance_images"
+pretrained_model_name_or_path: runwayml/stable-diffusion-v1-5
+instance_data_dir: "/root/dreambooth-diffusers/instance_data/narek"
+
 output_dir: "/root/dreambooth-diffusers/output"
-class_prompt: "a photo of narek"
-instance_prompt: "a photo of sks narek"
+instance_prompt: "narek"
 revision: "main"
 
 mixed_precision: "fp16"
@@ -14,18 +14,16 @@ lr_warmup_steps: 500
 
 prior_loss_weight: 1.0
 num_class_images: 100
-checkpoint_steps: 200
+checkpoint_steps: 100
 seed: 42
 resolution: 512
 center_crop: False
 train_batch_size: 4
 sample_batch_size: 4
 num_train_epochs: 1
-max_train_steps: 1000
+max_train_steps: 800
 resume_from_checkpoint: "latest"
 gradient_accumulation_steps: 1
-
-
 
 with_prior_preservation: False
 
@@ -35,4 +33,3 @@ hub_token: None
 hub_model_id: None
 logging_dir: "logs"
 prior_generation_precision: None
-local_rank: -1

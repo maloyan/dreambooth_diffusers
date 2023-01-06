@@ -4,14 +4,14 @@ import torch
 import torch.nn.functional as F
 import wandb
 from accelerate import Accelerator
-from diffusers import AutoencoderKL, DDPMScheduler, UNet2DConditionModel
+from diffusers import AutoencoderKL, PNDMScheduler, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
+from dreambooth_tutorial.dataset import DreamBoothDataset
 from omegaconf import OmegaConf
 from pkg_resources import resource_filename
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, CLIPTextModel
-from dreambooth_tutorial.dataset import DreamBoothDataset
 
 config = OmegaConf.load(resource_filename(__name__, "../configs/config.yaml"))
 
@@ -59,15 +59,13 @@ optimizer = torch.optim.AdamW(
     lr=config.learning_rate,
 )
 
-noise_scheduler = DDPMScheduler.from_pretrained(
+noise_scheduler = PNDMScheduler.from_pretrained(
     config.pretrained_model_name_or_path, subfolder="scheduler"
 )
 
 train_dataset = DreamBoothDataset(
     instance_data_root=config.instance_data_dir,
-    instance_prompt=config.instance_prompt,
-    # class_data_root=None,
-    # class_prompt=config.class_prompt,
+    instance_prompt=f"a photo of sks {config.instance_prompt}",
     tokenizer=tokenizer,
     size=config.resolution,
     center_crop=config.center_crop,
@@ -135,7 +133,6 @@ for _ in progress_bar:
 
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
-
             # Get the target for loss depending on the prediction type
             if noise_scheduler.config.prediction_type == "epsilon":
                 target = noise
@@ -182,7 +179,11 @@ for _ in progress_bar:
             global_step += 1
 
             if global_step % 100 == 0 and accelerator.is_main_process:
-                save_path = os.path.join(config.output_dir, f"checkpoint-{global_step}")
+                save_path = os.path.join(
+                    config.output_dir,
+                    config.instance_prompt,
+                    f"checkpoint-{global_step}",
+                )
                 accelerator.save_state(save_path)
 
         logs = {
