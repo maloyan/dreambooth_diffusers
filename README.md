@@ -20,5 +20,5 @@ python dreambooth_tutorial/train.py
 
 change promt first 
 ```
-python dreambooth_tutorial/train.py
+python dreambooth_tutorial/predict_light.py
 ```
