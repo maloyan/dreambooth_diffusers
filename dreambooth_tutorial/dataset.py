@@ -3,7 +3,7 @@ from pathlib import Path
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
-
+from datasets import load_dataset
 
 class DreamBoothDataset(Dataset):
     """
@@ -63,4 +63,34 @@ class DreamBoothDataset(Dataset):
                 max_length=self.tokenizer.model_max_length,
                 return_tensors="pt",
             ).input_ids[0],
+        }
+
+
+class DreamBoothImageDataset(Dataset):
+    """
+    A dataset to prepare the instance and class images with the prompts for fine-tuning the model.
+    It pre-processes the images and the tokenizes prompts.
+    """
+
+    def __init__(
+        self,
+    ):
+        self.dataset = load_dataset("maloyan/vqgan1024_reconstruction", split="train[:1000]")
+        self.image_transforms = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize([0.5], [0.5]),
+            ]
+        )
+
+    def __len__(self):
+        return self.dataset.num_rows
+
+    def __getitem__(self, index):
+        image_256 = self.dataset[index]["image_256"]
+        reconstruction_256 = self.dataset[index]["reconstruction_256"]
+
+        return {
+            "image_256": self.image_transforms(image_256),
+            "reconstruction_256": self.image_transforms(reconstruction_256)
         }

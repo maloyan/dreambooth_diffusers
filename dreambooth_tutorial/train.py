@@ -4,14 +4,23 @@ import torch
 import torch.nn.functional as F
 import wandb
 from accelerate import Accelerator
+from datasets import load_dataset
 from diffusers import AutoencoderKL, PNDMScheduler, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
-from dreambooth_tutorial.dataset import DreamBoothDataset
+from dreambooth_tutorial.dataset import DreamBoothDataset, DreamBoothImageDataset
 from omegaconf import OmegaConf
 from pkg_resources import resource_filename
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from tqdm import tqdm
-from transformers import AutoTokenizer, CLIPTextModel
+from transformers import (
+    AutoTokenizer,
+    CLIPFeatureExtractor,
+    CLIPModel,
+    CLIPProcessor,
+    CLIPTextModel,
+    CLIPVisionModelWithProjection,
+)
 
 config = OmegaConf.load(resource_filename(__name__, "../configs/config.yaml"))
 
@@ -28,18 +37,22 @@ if accelerator.is_main_process:
         name=f"{config['pretrained_model_name_or_path']}",
     )
 
-tokenizer = AutoTokenizer.from_pretrained(
-    config.pretrained_model_name_or_path,
-    subfolder="tokenizer",
-    use_fast=False,
-    revision=config.revision,
-)
+# tokenizer = AutoTokenizer.from_pretrained(
+#     config.pretrained_model_name_or_path,
+#     subfolder="tokenizer",
+#     use_fast=False,
+#     revision=config.revision,
+# )
 
-text_encoder = CLIPTextModel.from_pretrained(
-    config.pretrained_model_name_or_path,
-    subfolder="text_encoder",
-    revision=config.revision,
-)
+# text_encoder = CLIPTextModel.from_pretrained(
+#     config.pretrained_model_name_or_path,
+#     subfolder="text_encoder",
+#     revision=config.revision,
+# )
+
+vision_encoder = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+
 vae = AutoencoderKL.from_pretrained(
     config.pretrained_model_name_or_path,
     subfolder="vae",
@@ -51,7 +64,7 @@ unet = UNet2DConditionModel.from_pretrained(
     revision=config.revision,
 )
 
-text_encoder.requires_grad_(False)
+# text_encoder.requires_grad_(False)
 vae.requires_grad_(False)
 
 optimizer = torch.optim.AdamW(
@@ -63,13 +76,15 @@ noise_scheduler = PNDMScheduler.from_pretrained(
     config.pretrained_model_name_or_path, subfolder="scheduler"
 )
 
-train_dataset = DreamBoothDataset(
-    instance_data_root=config.instance_data_dir,
-    instance_prompt=f"a photo of sks {config.instance_prompt}",
-    tokenizer=tokenizer,
-    size=config.resolution,
-    center_crop=config.center_crop,
-)
+# train_dataset = DreamBoothDataset(
+#     instance_data_root=config.instance_data_dir,
+#     instance_prompt=f"a photo of sks {config.instance_prompt}",
+#     tokenizer=tokenizer,
+#     size=config.resolution,
+#     center_crop=config.center_crop,
+# )
+
+train_dataset = DreamBoothImageDataset()
 
 train_dataloader = DataLoader(
     train_dataset,
@@ -87,13 +102,18 @@ lr_scheduler = get_scheduler(
 
 (
     unet,
-    text_encoder,
+    # text_encoder,
     vae,
     optimizer,
     train_dataloader,
     lr_scheduler,
 ) = accelerator.prepare(
-    unet, text_encoder, vae, optimizer, train_dataloader, lr_scheduler
+    unet,
+    # text_encoder,
+    vae,
+    optimizer,
+    train_dataloader,
+    lr_scheduler,
 )
 accelerator.register_for_checkpointing(lr_scheduler)
 
@@ -105,11 +125,13 @@ progress_bar.set_description("Steps")
 global_step = 0
 
 unet.train()
+
 for _ in progress_bar:
     for batch in train_dataloader:
         with accelerator.accumulate(unet):
             # Convert images to latent space
-            latents = vae.encode(batch["instance_images"]).latent_dist.sample()
+
+            latents = vae.encode(batch["image_256"]).latent_dist.sample()
             latents = latents * 0.18215
 
             # Sample noise that we'll add to the latents
@@ -129,7 +151,12 @@ for _ in progress_bar:
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
             # Get the text embedding for conditioning
-            encoder_hidden_states = text_encoder(batch["instance_prompt_ids"])[0]
+            # encoder_hidden_states = text_encoder(batch["instance_prompt_ids"])[0]
+            inputs = processor(
+                images=list(batch["reconstruction_256"]), return_tensors="pt"
+            )
+            encoder_hidden_states = vision_encoder.get_image_features(**inputs).cuda()
+            encoder_hidden_states = encoder_hidden_states.unsqueeze(1)
 
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
