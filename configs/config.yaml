@@ -1,4 +1,4 @@
-pretrained_model_name_or_path: runwayml/stable-diffusion-v1-5
+pretrained_model_name_or_path: darkstorm2150/Protogen_Dragon_Official_Release
 instance_data_dir: "/root/dreambooth-diffusers/instance_data/narek"
 
 output_dir: "/root/dreambooth-diffusers/output"
